@@ -2995,7 +2995,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 
 /***/ }),
 
-/***/ 9946:
+/***/ 7811:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
@@ -3127,7 +3127,7 @@ exports.HashDiff = HashDiff;
 
 /***/ }),
 
-/***/ 232:
+/***/ 8783:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
@@ -3171,13 +3171,13 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.deploy = exports.getServerFiles = void 0;
 const ftp = __importStar(__nccwpck_require__(7957));
 const fs_1 = __importDefault(__nccwpck_require__(7147));
-const types_1 = __nccwpck_require__(6703);
-const HashDiff_1 = __nccwpck_require__(9946);
-const utilities_1 = __nccwpck_require__(4389);
+const types_1 = __nccwpck_require__(8408);
+const HashDiff_1 = __nccwpck_require__(7811);
+const utilities_1 = __nccwpck_require__(358);
 const pretty_bytes_1 = __importDefault(__nccwpck_require__(5168));
-const errorHandling_1 = __nccwpck_require__(3678);
-const syncProvider_1 = __nccwpck_require__(1904);
-const localFiles_1 = __nccwpck_require__(8660);
+const errorHandling_1 = __nccwpck_require__(7522);
+const syncProvider_1 = __nccwpck_require__(4278);
+const localFiles_1 = __nccwpck_require__(4100);
 function downloadFileList(client, logger, path) {
     return __awaiter(this, void 0, void 0, function* () {
         // note: originally this was using a writable stream instead of a buffer file
@@ -3362,14 +3362,14 @@ exports.deploy = deploy;
 
 /***/ }),
 
-/***/ 3678:
+/***/ 7522:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.prettyError = void 0;
-const types_1 = __nccwpck_require__(6703);
+const types_1 = __nccwpck_require__(8408);
 function logOriginalError(logger, error) {
     logger.all();
     logger.all(`----------------------------------------------------------------`);
@@ -3423,7 +3423,7 @@ exports.prettyError = prettyError;
 
 /***/ }),
 
-/***/ 8660:
+/***/ 4100:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
@@ -3443,9 +3443,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getLocalFiles = void 0;
 const readdir_enhanced_1 = __importDefault(__nccwpck_require__(8811));
-const types_1 = __nccwpck_require__(6703);
-const HashDiff_1 = __nccwpck_require__(9946);
-const utilities_1 = __nccwpck_require__(4389);
+const types_1 = __nccwpck_require__(8408);
+const HashDiff_1 = __nccwpck_require__(7811);
+const utilities_1 = __nccwpck_require__(358);
 function getLocalFiles(args) {
     return __awaiter(this, void 0, void 0, function* () {
         const files = yield readdir_enhanced_1.default.async(args["local-dir"], { deep: true, stats: true, sep: "/", filter: (stat) => (0, utilities_1.applyExcludeFilter)(stat, args.exclude) });
@@ -3485,7 +3485,7 @@ exports.getLocalFiles = getLocalFiles;
 
 /***/ }),
 
-/***/ 8347:
+/***/ 5226:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
@@ -3501,8 +3501,8 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.deploy = exports.excludeDefaults = void 0;
-const deploy_1 = __nccwpck_require__(232);
-const utilities_1 = __nccwpck_require__(4389);
+const deploy_1 = __nccwpck_require__(8783);
+const utilities_1 = __nccwpck_require__(358);
 /**
  * Default excludes, ignores all git files and the node_modules folder
  * **\/.git* ignores all FILES that start with .git(in any folder or sub-folder)
@@ -3527,7 +3527,7 @@ exports.deploy = deploy;
 
 /***/ }),
 
-/***/ 1904:
+/***/ 4278:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
@@ -3547,8 +3547,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.FTPSyncProvider = exports.ensureDir = void 0;
 const pretty_bytes_1 = __importDefault(__nccwpck_require__(5168));
-const types_1 = __nccwpck_require__(6703);
-const utilities_1 = __nccwpck_require__(4389);
+const types_1 = __nccwpck_require__(8408);
+const utilities_1 = __nccwpck_require__(358);
 function ensureDir(client, logger, timings, folder) {
     return __awaiter(this, void 0, void 0, function* () {
         timings.start("changingDir");
@@ -3570,10 +3570,10 @@ class FTPSyncProvider {
         this.stateName = stateName;
         this.dryRun = dryRun;
     }
-    sendNoopIfNeeded() {
+    sendNoopIfNeeded(force = false) {
         return __awaiter(this, void 0, void 0, function* () {
             const now = Date.now();
-            if (now - this.lastNoopTime > 30000) { // 30 sekund
+            if (now - this.lastNoopTime > 5000 || force) {
                 try {
                     yield this.client.send("NOOP");
                     this.logger.verbose("NOOP sent to prevent timeout");
@@ -3724,7 +3724,7 @@ exports.FTPSyncProvider = FTPSyncProvider;
 
 /***/ }),
 
-/***/ 6703:
+/***/ 8408:
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -3801,7 +3801,7 @@ var ErrorCode;
 
 /***/ }),
 
-/***/ 4389:
+/***/ 358:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
@@ -3821,8 +3821,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.applyExcludeFilter = exports.getDefaultSettings = exports.Timer = exports.Timings = exports.retryRequest = exports.formatNumber = exports.pluralize = exports.Logger = void 0;
 const pretty_ms_1 = __importDefault(__nccwpck_require__(1127));
-const module_1 = __nccwpck_require__(8347);
-const types_1 = __nccwpck_require__(6703);
+const module_1 = __nccwpck_require__(5226);
+const types_1 = __nccwpck_require__(8408);
 const multimatch_1 = __importDefault(__nccwpck_require__(8222));
 class Logger {
     constructor(level) {
@@ -9083,7 +9083,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core = __importStar(__nccwpck_require__(2186));
-const ftp_deploy_1 = __nccwpck_require__(8347);
+const ftp_deploy_1 = __nccwpck_require__(5226);
 const parse_1 = __nccwpck_require__(6089);
 async function runDeployment() {
     try {
