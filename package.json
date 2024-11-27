@@ -11,7 +11,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/SamKirkland/FTP-Deploy-Action.git"
+    "url": "git+https://github.com/seegr/FTP-Deploy-Action.git"
   },
   "keywords": [
     "ftp",
