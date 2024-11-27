@@ -3274,6 +3274,7 @@ function deploy(args, logger, timings) {
         // header
         logger.all(`----------------------------------------------------------------`);
         logger.all(`🚀 Thanks for using ftp-deploy. Let's deploy some stuff!   `);
+        logger.all(`Nazdárek 💩 ... (Thank you Sam!)   `);
         logger.all(`----------------------------------------------------------------`);
         logger.all(`If you found this project helpful, please support it`);
         logger.all(`by giving it a ⭐ on Github --> https://github.com/SamKirkland/FTP-Deploy-Action`);
@@ -3666,26 +3667,37 @@ class FTPSyncProvider {
             this.logger.all(`Making changes to ${totalCount} ${(0, utilities_1.pluralize)(totalCount, "file/folder", "files/folders")} to sync server state`);
             this.logger.all(`Uploading: ${(0, pretty_bytes_1.default)(diffs.sizeUpload)} -- Deleting: ${(0, pretty_bytes_1.default)(diffs.sizeDelete)} -- Replacing: ${(0, pretty_bytes_1.default)(diffs.sizeReplace)}`);
             this.logger.all(`----------------------------------------------------------------`);
-            // create new folders
-            for (const file of diffs.upload.filter(item => item.type === "folder")) {
-                yield this.createFolder(file.name);
+            // NOOP timer
+            const noopInterval = setInterval(() => {
+                this.logger.verbose("Sending NOOP to prevent timeout...");
+                this.client.send("NOOP").catch((err) => {
+                    this.logger.verbose(`Failed to send NOOP: ${err.message}`);
+                });
+            }, 30000);
+            try {
+                // create new folders
+                for (const file of diffs.upload.filter(item => item.type === "folder")) {
+                    yield this.createFolder(file.name);
+                }
+                // upload new files
+                for (const file of diffs.upload.filter(item => item.type === "file").filter(item => item.name !== this.stateName)) {
+                    yield this.uploadFile(file.name, "upload");
+                }
+                // replace new files
+                for (const file of diffs.replace.filter(item => item.type === "file").filter(item => item.name !== this.stateName)) {
+                    yield this.uploadFile(file.name, "replace");
+                }
+                // delete old files
+                for (const file of diffs.delete.filter(item => item.type === "file")) {
+                    yield this.removeFile(file.name);
+                }
+                // delete old folders
+                for (const file of diffs.delete.filter(item => item.type === "folder")) {
+                    yield this.removeFolder(file.name);
+                }
             }
-            // upload new files
-            for (const file of diffs.upload.filter(item => item.type === "file").filter(item => item.name !== this.stateName)) {
-                yield this.uploadFile(file.name, "upload");
-            }
-            // replace new files
-            for (const file of diffs.replace.filter(item => item.type === "file").filter(item => item.name !== this.stateName)) {
-                // note: FTP will replace old files with new files. We run replacements after uploads to limit downtime
-                yield this.uploadFile(file.name, "replace");
-            }
-            // delete old files
-            for (const file of diffs.delete.filter(item => item.type === "file")) {
-                yield this.removeFile(file.name);
-            }
-            // delete old folders
-            for (const file of diffs.delete.filter(item => item.type === "folder")) {
-                yield this.removeFolder(file.name);
+            finally {
+                clearInterval(noopInterval);
             }
             this.logger.all(`----------------------------------------------------------------`);
             this.logger.all(`🎉 Sync complete. Saving current server state to "${this.serverPath + this.stateName}"`);
