@@ -3576,7 +3576,7 @@ class FTPSyncProvider {
             if (now - this.lastNoopTime > 5000 || force) {
                 try {
                     yield this.client.send("NOOP");
-                    this.logger.verbose("NOOP sent to prevent timeout");
+                    this.logger.all("NOOP tick :]");
                     this.lastNoopTime = now;
                 }
                 catch (error) {
