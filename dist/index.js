@@ -3561,6 +3561,7 @@ function ensureDir(client, logger, timings, folder) {
 exports.ensureDir = ensureDir;
 class FTPSyncProvider {
     constructor(client, logger, timings, localPath, serverPath, stateName, dryRun) {
+        this.lastNoopTime = Date.now();
         this.client = client;
         this.logger = logger;
         this.timings = timings;
@@ -3568,6 +3569,26 @@ class FTPSyncProvider {
         this.serverPath = serverPath;
         this.stateName = stateName;
         this.dryRun = dryRun;
+    }
+    sendNoopIfNeeded() {
+        return __awaiter(this, void 0, void 0, function* () {
+            const now = Date.now();
+            if (now - this.lastNoopTime > 30000) { // 30 sekund
+                try {
+                    yield this.client.send("NOOP");
+                    this.logger.verbose("NOOP sent to prevent timeout");
+                    this.lastNoopTime = now;
+                }
+                catch (error) {
+                    if (error instanceof Error) {
+                        this.logger.verbose(`Failed to send NOOP: ${error.message}`);
+                    }
+                    else {
+                        this.logger.verbose("Failed to send NOOP: Unknown error");
+                    }
+                }
+            }
+        });
     }
     /**
      * Converts a file path (ex: "folder/otherfolder/file.txt") to an array of folder and a file path
@@ -3606,6 +3627,7 @@ class FTPSyncProvider {
             if (this.dryRun === true) {
                 return;
             }
+            yield this.sendNoopIfNeeded();
             const path = this.getFileBreadcrumbs(folderPath + "/");
             if (path.folders === null) {
                 this.logger.verbose(`  no need to change dir`);
@@ -3654,6 +3676,7 @@ class FTPSyncProvider {
             const typePresent = type === "upload" ? "uploading" : "replacing";
             const typePast = type === "upload" ? "uploaded" : "replaced";
             this.logger.all(`${typePresent} "${filePath}"`);
+            yield this.sendNoopIfNeeded();
             if (this.dryRun === false) {
                 yield (0, utilities_1.retryRequest)(this.logger, () => __awaiter(this, void 0, void 0, function* () { return yield this.client.uploadFrom(this.localPath + filePath, filePath); }));
             }
@@ -3667,39 +3690,28 @@ class FTPSyncProvider {
             this.logger.all(`Making changes to ${totalCount} ${(0, utilities_1.pluralize)(totalCount, "file/folder", "files/folders")} to sync server state`);
             this.logger.all(`Uploading: ${(0, pretty_bytes_1.default)(diffs.sizeUpload)} -- Deleting: ${(0, pretty_bytes_1.default)(diffs.sizeDelete)} -- Replacing: ${(0, pretty_bytes_1.default)(diffs.sizeReplace)}`);
             this.logger.all(`----------------------------------------------------------------`);
-            // NOOP timer
-            const noopInterval = setInterval(() => {
-                this.logger.verbose("Sending NOOP to prevent timeout...");
-                this.client.send("NOOP").catch((err) => {
-                    this.logger.verbose(`Failed to send NOOP: ${err.message}`);
-                });
-            }, 30000);
-            try {
-                // create new folders
-                for (const file of diffs.upload.filter(item => item.type === "folder")) {
-                    yield this.createFolder(file.name);
-                }
-                // upload new files
-                for (const file of diffs.upload.filter(item => item.type === "file").filter(item => item.name !== this.stateName)) {
-                    yield this.uploadFile(file.name, "upload");
-                }
-                // replace new files
-                for (const file of diffs.replace.filter(item => item.type === "file").filter(item => item.name !== this.stateName)) {
-                    yield this.uploadFile(file.name, "replace");
-                }
-                // delete old files
-                for (const file of diffs.delete.filter(item => item.type === "file")) {
-                    yield this.removeFile(file.name);
-                }
-                // delete old folders
-                for (const file of diffs.delete.filter(item => item.type === "folder")) {
-                    yield this.removeFolder(file.name);
-                }
+            // create new folders
+            for (const file of diffs.upload.filter(item => item.type === "folder")) {
+                yield this.createFolder(file.name);
             }
-            finally {
-                clearInterval(noopInterval);
+            // upload new files
+            for (const file of diffs.upload.filter(item => item.type === "file").filter(item => item.name !== this.stateName)) {
+                yield this.uploadFile(file.name, "upload");
+            }
+            // replace new files
+            for (const file of diffs.replace.filter(item => item.type === "file").filter(item => item.name !== this.stateName)) {
+                yield this.uploadFile(file.name, "replace");
+            }
+            // delete old files
+            for (const file of diffs.delete.filter(item => item.type === "file")) {
+                yield this.removeFile(file.name);
+            }
+            // delete old folders
+            for (const file of diffs.delete.filter(item => item.type === "folder")) {
+                yield this.removeFolder(file.name);
             }
             this.logger.all(`----------------------------------------------------------------`);
+            this.logger.all(`A je to tam! 💩`);
             this.logger.all(`🎉 Sync complete. Saving current server state to "${this.serverPath + this.stateName}"`);
             if (this.dryRun === false) {
                 yield (0, utilities_1.retryRequest)(this.logger, () => __awaiter(this, void 0, void 0, function* () { return yield this.client.uploadFrom(this.localPath + this.stateName, this.stateName); }));
