@@ -3271,6 +3271,21 @@ function getServerFiles(client, logger, timings, args) {
     });
 }
 exports.getServerFiles = getServerFiles;
+class Mutex {
+    constructor() {
+        this.promise = Promise.resolve();
+    }
+    lock() {
+        return __awaiter(this, void 0, void 0, function* () {
+            let unlockNext;
+            const willUnlock = new Promise(resolve => unlockNext = resolve);
+            const previous = this.promise;
+            this.promise = willUnlock;
+            yield previous;
+            unlockNext(); // Spustí další čekající úlohu
+        });
+    }
+}
 function deploy(args, logger, timings) {
     return __awaiter(this, void 0, void 0, function* () {
         timings.start("total");
@@ -3287,18 +3302,20 @@ function deploy(args, logger, timings) {
         timings.stop("hash");
         createLocalState(localFiles, logger, args);
         const client = new ftp.Client(args.timeout);
-        // Keep-alive mechanism
+        const clientMutex = new Mutex(); // Mutex pro kontrolu přístupu ke klientovi
         const keepAliveInterval = setInterval(() => __awaiter(this, void 0, void 0, function* () {
             try {
-                yield client.send("NOOP"); // Prevents timeout by sending a "No Operation" command
+                yield clientMutex.lock();
+                yield client.send("NOOP");
             }
             catch (error) {
-                logger.all("{Hey Mr. FTP ... I'm still here!!!} - 💩👉🏻 ");
-                yield global.reconnect(); // Reconnect if keep-alive fails
+                logger.verbose("Keep-alive failed, attempting to reconnect...");
+                yield global.reconnect();
             }
-        }), 3000); // Keep-alive interval: half the timeout duration
+        }), args.timeout / 2);
         global.reconnect = function () {
             return __awaiter(this, void 0, void 0, function* () {
+                yield clientMutex.lock();
                 timings.start("connecting");
                 yield connect(client, args, logger);
                 timings.stop("connecting");
@@ -3307,6 +3324,7 @@ function deploy(args, logger, timings) {
         let totalBytesUploaded = 0;
         try {
             yield global.reconnect();
+            yield clientMutex.lock();
             const serverFiles = yield getServerFiles(client, logger, timings, args);
             timings.start("logging");
             const diffTool = new HashDiff_1.HashDiff();
@@ -3341,6 +3359,7 @@ function deploy(args, logger, timings) {
             totalBytesUploaded = diffs.sizeUpload + diffs.sizeReplace;
             timings.start("upload");
             try {
+                yield clientMutex.lock();
                 const syncProvider = new syncProvider_1.FTPSyncProvider(client, logger, timings, args["local-dir"], args["server-dir"], args["state-name"], args["dry-run"]);
                 yield syncProvider.syncLocalToServer(diffs);
             }
@@ -3353,12 +3372,11 @@ function deploy(args, logger, timings) {
             throw error;
         }
         finally {
-            clearInterval(keepAliveInterval); // Stop the keep-alive timer
+            clearInterval(keepAliveInterval);
             client.close();
             timings.stop("total");
         }
         const uploadSpeed = (0, pretty_bytes_1.default)(totalBytesUploaded / (timings.getTime("upload") / 1000));
-        // Footer
         logger.all(`----------------------------------------------------------------`);
         logger.all(`Time spent hashing: ${timings.getTimeFormatted("hash")}`);
         logger.all(`Time spent connecting to server: ${timings.getTimeFormatted("connecting")}`);
