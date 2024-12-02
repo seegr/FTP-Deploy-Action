@@ -3207,6 +3207,7 @@ function connect(client, args, logger) {
         client.ftp.verbose = args["log-level"] === "verbose";
         const rejectUnauthorized = args.security === "strict";
         try {
+            logger.verbose(`Attempting connection to ${args.server}:${args.port} via ${args.protocol}`);
             yield client.access({
                 host: args.server,
                 user: args.username,
@@ -3217,14 +3218,16 @@ function connect(client, args, logger) {
                     rejectUnauthorized: rejectUnauthorized
                 }
             });
+            logger.verbose("FTP connection successful.");
         }
         catch (error) {
-            logger.all("Failed to connect, are you sure your server works via FTP or FTPS? Users sometimes get this error when the server only supports SFTP.");
+            logger.all("Connection failed. Ensure the server supports the chosen protocol (FTP/FTPS).");
+            logger.verbose(`Connection error: ${error.message}`);
             throw error;
         }
         if (args["log-level"] === "verbose") {
             client.trackProgress(info => {
-                logger.verbose(`${info.type} progress for "${info.name}". Progress: ${info.bytes} bytes of ${info.bytesOverall} bytes`);
+                logger.verbose(`${info.type} progress for "${info.name}". Progress: ${info.bytes} of ${info.bytesOverall} bytes`);
             });
         }
     });
@@ -3271,7 +3274,6 @@ exports.getServerFiles = getServerFiles;
 function deploy(args, logger, timings) {
     return __awaiter(this, void 0, void 0, function* () {
         timings.start("total");
-        // header
         logger.all(`----------------------------------------------------------------`);
         logger.all(`🚀 Thanks for using ftp-deploy. Let's deploy some stuff!   `);
         logger.all(`Nazdárek 💩 ... (Thank you Sam!)   `);
@@ -3285,6 +3287,16 @@ function deploy(args, logger, timings) {
         timings.stop("hash");
         createLocalState(localFiles, logger, args);
         const client = new ftp.Client(args.timeout);
+        // Keep-alive mechanism
+        const keepAliveInterval = setInterval(() => __awaiter(this, void 0, void 0, function* () {
+            try {
+                yield client.send("NOOP"); // Prevents timeout by sending a "No Operation" command
+            }
+            catch (error) {
+                logger.all("{Hey Mr. FTP ... I'm still here!!!} - 💩👉🏻 ");
+                yield global.reconnect(); // Reconnect if keep-alive fails
+            }
+        }), 3000); // Keep-alive interval: half the timeout duration
         global.reconnect = function () {
             return __awaiter(this, void 0, void 0, function* () {
                 timings.start("connecting");
@@ -3341,11 +3353,12 @@ function deploy(args, logger, timings) {
             throw error;
         }
         finally {
+            clearInterval(keepAliveInterval); // Stop the keep-alive timer
             client.close();
             timings.stop("total");
         }
         const uploadSpeed = (0, pretty_bytes_1.default)(totalBytesUploaded / (timings.getTime("upload") / 1000));
-        // footer
+        // Footer
         logger.all(`----------------------------------------------------------------`);
         logger.all(`Time spent hashing: ${timings.getTimeFormatted("hash")}`);
         logger.all(`Time spent connecting to server: ${timings.getTimeFormatted("connecting")}`);
