@@ -3586,6 +3586,29 @@ exports.deploy = deploy;
 
 "use strict";
 
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -3601,6 +3624,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.FTPSyncProvider = exports.ensureDir = void 0;
 const pretty_bytes_1 = __importDefault(__nccwpck_require__(5168));
+const basicFtp = __importStar(__nccwpck_require__(7957));
 const types_1 = __nccwpck_require__(8408);
 const utilities_1 = __nccwpck_require__(358);
 function ensureDir(client, logger, timings, folder) {
@@ -3623,6 +3647,25 @@ class FTPSyncProvider {
         this.serverPath = serverPath;
         this.stateName = stateName;
         this.dryRun = dryRun;
+    }
+    reconnect() {
+        return __awaiter(this, void 0, void 0, function* () {
+            this.logger.verbose("Reconnecting to FTP server...");
+            try {
+                this.client.close(); // Zavři staré připojení
+            }
+            catch (error) {
+                this.logger.verbose(`Error while closing client (ignored): ${error.message}`);
+            }
+            this.client = new basicFtp.Client(this.client.ftp.timeout); // Vytvoř nový klient
+            yield this.client.access({
+                host: this.serverPath,
+                user: this.localPath,
+                password: this.stateName,
+                secure: true, // nebo false podle potřeby
+            });
+            this.logger.verbose("Reconnected successfully.");
+        });
     }
     sendNoopIfNeeded(force = false) {
         return __awaiter(this, void 0, void 0, function* () {
@@ -3652,8 +3695,18 @@ class FTPSyncProvider {
                     return yield operation();
                 }
                 catch (error) {
-                    lastError = error;
-                    console.error(`Operation failed (attempt ${attempt + 1}/${retries}): ${(lastError).message}`);
+                    if (error instanceof Error) {
+                        lastError = error;
+                        if (error.message.includes("Client is closed")) {
+                            this.logger.verbose("Client closed, attempting to reconnect...");
+                            yield this.reconnect();
+                        }
+                        console.error(`Operation failed (attempt ${attempt + 1}/${retries}): ${error.message}`);
+                    }
+                    else {
+                        lastError = new Error("Unknown error occurred");
+                        console.error(`Operation failed (attempt ${attempt + 1}/${retries}): Unknown error`);
+                    }
                     if (attempt < retries - 1) {
                         console.log("Retrying...");
                     }
