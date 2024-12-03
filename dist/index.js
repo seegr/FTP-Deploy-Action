@@ -3216,7 +3216,7 @@ function connect(client, args, logger) {
                 secure: secure,
                 secureOptions: {
                     rejectUnauthorized: rejectUnauthorized
-                }
+                },
             });
             logger.verbose("FTP connection successful.");
         }
@@ -3286,12 +3286,42 @@ class Mutex {
         });
     }
 }
+function ensureStateFileExists(client, logger, timings, localPath, serverPath, stateName) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const serverStatePath = `${serverPath}${stateName}`;
+        logger.all(`Ensuring state file "${serverStatePath}" exists on the server.`);
+        try {
+            // Check if state file exists
+            const files = yield client.list(serverPath);
+            const stateFileExists = files.some(file => file.name === stateName);
+            if (!stateFileExists) {
+                logger.standard(`State file "${serverStatePath}" does not exist. Creating it...`);
+                // Create an empty state file locally if it doesn't exist
+                const localStateFilePath = `${localPath}${stateName}`;
+                if (!fs_1.default.existsSync(localStateFilePath)) {
+                    fs_1.default.writeFileSync(localStateFilePath, JSON.stringify({}));
+                    logger.verbose(`Created local state file at "${localStateFilePath}".`);
+                }
+                // Upload empty state file to the server
+                yield client.uploadFrom(localStateFilePath, serverStatePath);
+                logger.standard(`State file "${serverStatePath}" has been created on the server.`);
+            }
+            else {
+                logger.standard(`State file "${serverStatePath}" already exists.`);
+            }
+        }
+        catch (error) {
+            logger.all(`Error ensuring state file exists: ${error.message}`);
+            throw error;
+        }
+    });
+}
 function deploy(args, logger, timings) {
     return __awaiter(this, void 0, void 0, function* () {
         timings.start("total");
         logger.all(`----------------------------------------------------------------`);
-        logger.all(`🚀 Thanks for using ftp-deploy. Let's deploy some stuff!   `);
-        logger.all(`Nazdárek 💩 ... (Thank you Sam!)   `);
+        logger.all(`🚀 Thanks for using ftp-deploy. Let's deploy some stuff!`);
+        logger.all(`Nazdárek 💩 ... (Thank you Sam!)`);
         logger.all(`----------------------------------------------------------------`);
         logger.all(`If you found this project helpful, please support it`);
         logger.all(`by giving it a ⭐ on Github --> https://github.com/SamKirkland/FTP-Deploy-Action`);
@@ -3302,20 +3332,11 @@ function deploy(args, logger, timings) {
         timings.stop("hash");
         createLocalState(localFiles, logger, args);
         const client = new ftp.Client(args.timeout);
-        const clientMutex = new Mutex(); // Mutex pro kontrolu přístupu ke klientovi
-        const keepAliveInterval = setInterval(() => __awaiter(this, void 0, void 0, function* () {
-            try {
-                yield clientMutex.lock();
-                yield client.send("NOOP");
-            }
-            catch (error) {
-                logger.verbose("Keep-alive failed, attempting to reconnect...");
-                yield global.reconnect();
-            }
-        }), args.timeout / 2);
+        const stateName = args["state-name"];
+        const localPath = args["local-dir"];
+        const serverPath = args["server-dir"];
         global.reconnect = function () {
             return __awaiter(this, void 0, void 0, function* () {
-                yield clientMutex.lock();
                 timings.start("connecting");
                 yield connect(client, args, logger);
                 timings.stop("connecting");
@@ -3324,8 +3345,11 @@ function deploy(args, logger, timings) {
         let totalBytesUploaded = 0;
         try {
             yield global.reconnect();
-            yield clientMutex.lock();
+            // Ensure state.json exists
+            yield ensureStateFileExists(client, logger, timings, localPath, serverPath, stateName);
+            // Get server files
             const serverFiles = yield getServerFiles(client, logger, timings, args);
+            // Calculate diffs
             timings.start("logging");
             const diffTool = new HashDiff_1.HashDiff();
             logger.standard(`----------------------------------------------------------------`);
@@ -3335,32 +3359,32 @@ function deploy(args, logger, timings) {
             logger.standard(`Calculating differences between client & server`);
             logger.standard(`----------------------------------------------------------------`);
             const diffs = diffTool.getDiffs(localFiles, serverFiles);
-            diffs.upload.filter((itemUpload) => itemUpload.type === "folder").map((itemUpload) => {
-                logger.standard(`📁 Create: ${itemUpload.name}`);
+            diffs.upload.filter(item => item.type === "folder").map(item => {
+                logger.standard(`📁 Create: ${item.name}`);
             });
-            diffs.upload.filter((itemUpload) => itemUpload.type === "file").map((itemUpload) => {
-                logger.standard(`📄 Upload: ${itemUpload.name}`);
+            diffs.upload.filter(item => item.type === "file").map(item => {
+                logger.standard(`📄 Upload: ${item.name}`);
             });
-            diffs.replace.map((itemReplace) => {
-                logger.standard(`🔁 File replace: ${itemReplace.name}`);
+            diffs.replace.map(item => {
+                logger.standard(`🔁 File replace: ${item.name}`);
             });
-            diffs.delete.filter((itemUpload) => itemUpload.type === "file").map((itemDelete) => {
-                logger.standard(`📄 Delete: ${itemDelete.name}    `);
+            diffs.delete.filter(item => item.type === "file").map(item => {
+                logger.standard(`📄 Delete: ${item.name}`);
             });
-            diffs.delete.filter((itemUpload) => itemUpload.type === "folder").map((itemDelete) => {
-                logger.standard(`📁 Delete: ${itemDelete.name}    `);
+            diffs.delete.filter(item => item.type === "folder").map(item => {
+                logger.standard(`📁 Delete: ${item.name}`);
             });
-            diffs.same.map((itemSame) => {
-                if (itemSame.type === "file") {
-                    logger.standard(`⚖️  File content is the same, doing nothing: ${itemSame.name}`);
+            diffs.same.map(item => {
+                if (item.type === "file") {
+                    logger.standard(`⚖️  File content is the same, doing nothing: ${item.name}`);
                 }
             });
             timings.stop("logging");
             totalBytesUploaded = diffs.sizeUpload + diffs.sizeReplace;
+            // Upload files
             timings.start("upload");
             try {
-                yield clientMutex.lock();
-                const syncProvider = new syncProvider_1.FTPSyncProvider(client, logger, timings, args["local-dir"], args["server-dir"], args["state-name"], args["dry-run"]);
+                const syncProvider = new syncProvider_1.FTPSyncProvider(client, logger, timings, localPath, serverPath, stateName, args["dry-run"]);
                 yield syncProvider.syncLocalToServer(diffs);
             }
             finally {
@@ -3372,7 +3396,6 @@ function deploy(args, logger, timings) {
             throw error;
         }
         finally {
-            clearInterval(keepAliveInterval);
             client.close();
             timings.stop("total");
         }
