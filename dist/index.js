@@ -3644,6 +3644,24 @@ class FTPSyncProvider {
             }
         });
     }
+    safeOperation(operation, retries = 3) {
+        return __awaiter(this, void 0, void 0, function* () {
+            let lastError = null;
+            for (let attempt = 0; attempt < retries; attempt++) {
+                try {
+                    return yield operation();
+                }
+                catch (error) {
+                    lastError = error;
+                    console.error(`Operation failed (attempt ${attempt + 1}/${retries}): ${(lastError).message}`);
+                    if (attempt < retries - 1) {
+                        console.log("Retrying...");
+                    }
+                }
+            }
+            throw new Error(`Operation failed after ${retries} attempts: ${lastError === null || lastError === void 0 ? void 0 : lastError.message}`);
+        });
+    }
     /**
      * Converts a file path (ex: "folder/otherfolder/file.txt") to an array of folder and a file path
      * @param fullPath
@@ -3687,7 +3705,7 @@ class FTPSyncProvider {
                 this.logger.verbose(`  no need to change dir`);
             }
             else {
-                yield ensureDir(this.client, this.logger, this.timings, path.folders.join("/"));
+                yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () { return ensureDir(this.client, this.logger, this.timings, path.folders.join("/")); }));
             }
             // navigate back to the root folder
             yield this.upDir((_a = path.folders) === null || _a === void 0 ? void 0 : _a.length);
@@ -3699,10 +3717,9 @@ class FTPSyncProvider {
             this.logger.all(`removing "${filePath}"`);
             if (this.dryRun === false) {
                 try {
-                    yield (0, utilities_1.retryRequest)(this.logger, () => __awaiter(this, void 0, void 0, function* () { return yield this.client.remove(filePath); }));
+                    yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () { return this.client.remove(filePath); }));
                 }
                 catch (e) {
-                    // this error is common when a file was deleted on the server directly
                     if (e.code === types_1.ErrorCode.FileNotFoundOrNoAccess) {
                         this.logger.standard("File not found or you don't have access to the file - skipping...");
                     }
@@ -3717,10 +3734,11 @@ class FTPSyncProvider {
     }
     removeFolder(folderPath) {
         return __awaiter(this, void 0, void 0, function* () {
+            // eslint-disable-next-line @typescript-eslint/restrict-plus-operands
             const absoluteFolderPath = "/" + (this.serverPath.startsWith("./") ? this.serverPath.replace("./", "") : this.serverPath) + folderPath;
             this.logger.all(`removing folder "${absoluteFolderPath}"`);
             if (this.dryRun === false) {
-                yield (0, utilities_1.retryRequest)(this.logger, () => __awaiter(this, void 0, void 0, function* () { return yield this.client.removeDir(absoluteFolderPath); }));
+                yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () { return (0, utilities_1.retryRequest)(this.logger, () => __awaiter(this, void 0, void 0, function* () { return yield this.client.removeDir(absoluteFolderPath); })); }));
             }
             this.logger.verbose(`  completed`);
         });
@@ -3732,7 +3750,7 @@ class FTPSyncProvider {
             this.logger.all(`${typePresent} "${filePath}"`);
             yield this.sendNoopIfNeeded();
             if (this.dryRun === false) {
-                yield (0, utilities_1.retryRequest)(this.logger, () => __awaiter(this, void 0, void 0, function* () { return yield this.client.uploadFrom(this.localPath + filePath, filePath); }));
+                yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () { return this.client.uploadFrom(this.localPath + filePath, filePath); }));
             }
             this.logger.verbose(`  file ${typePast}`);
         });
