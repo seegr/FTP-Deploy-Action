@@ -3682,11 +3682,12 @@ class FTPSyncProvider {
                 this.logger.all(JSON.stringify(this.flushedState, null, 4), { encoding: "utf8" });
                 // Upload dočasného souboru na server
                 if (!this.dryRun) {
-                    yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () {
-                        return this.client.uploadFrom(tempStateFile, // Dočasná lokální cesta
-                        `${this.serverPath}${this.stateName}` // Cílová cesta na serveru
-                        );
-                    }));
+                    // await this.safeOperation(async () =>
+                    //   // this.client.uploadFrom(
+                    //   //   tempStateFile, // Dočasná lokální cesta
+                    //   //   `${this.serverPath}${this.stateName}` // Cílová cesta na serveru
+                    //   // )
+                    // );
                     this.logger.verbose(`Temporary state file "${this.stateName}" uploaded to the server.`);
                 }
             }
@@ -3896,9 +3897,11 @@ class FTPSyncProvider {
             const typePast = type === "upload" ? "uploaded" : "replaced";
             this.logger.all(`${typePresent} "${filePath}"`);
             yield this.sendNoopIfNeeded();
-            if (this.dryRun === false) {
-                yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () { return this.client.uploadFrom(this.localPath + filePath, filePath); }));
-            }
+            // if (this.dryRun === false) {
+            //     await this.safeOperation(async () =>
+            //       this.client.uploadFrom(this.localPath + filePath, filePath)
+            //     );
+            // }
             this.logger.verbose(`  file ${typePast}`);
             // Najdi hash v lokálním stavu a přidej do flushedState
             const existingFile = this.state.data.find(item => item.name === filePath && item.type === "file");
