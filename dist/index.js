@@ -3644,7 +3644,7 @@ class FTPSyncProvider {
         this.server = server;
         this.username = username;
         this.password = password;
-        // Inicializace state ze souboru
+        // Načtení state ze souboru
         const stateFilePath = `${this.localPath}${this.stateName}`;
         if (fs_1.default.existsSync(stateFilePath)) {
             const stateFileContent = fs_1.default.readFileSync(stateFilePath, "utf-8");
@@ -3660,6 +3660,34 @@ class FTPSyncProvider {
             };
             this.logger.verbose("Initialized new empty state.");
         }
+        // Inicializace flushedState jako prázdný
+        this.flushedState = {
+            description: "Flushed state for successfully synced items",
+            version: "1.0.0",
+            generatedTime: new Date().getTime(),
+            data: [],
+        };
+    }
+    flushState() {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                // Uložení `flushedState` lokálně
+                (0, deploy_1.createLocalState)(this.flushedState, this.logger, {
+                    "local-dir": this.localPath,
+                    "state-name": this.stateName,
+                });
+                // Nahrání na server
+                if (!this.dryRun) {
+                    yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () {
+                        return this.client.uploadFrom(`${this.localPath}${this.stateName}`, `${this.serverPath}${this.stateName}`);
+                    }));
+                    this.logger.verbose(`Flushed state file "${this.stateName}" uploaded to the server.`);
+                }
+            }
+            catch (error) {
+                this.logger.all(`⚠️ Failed to upload flushed state file: ${error.message}`);
+            }
+        });
     }
     reconnect() {
         return __awaiter(this, void 0, void 0, function* () {
@@ -3800,13 +3828,13 @@ class FTPSyncProvider {
             // navigate back to the root folder
             yield this.upDir((_a = path.folders) === null || _a === void 0 ? void 0 : _a.length);
             this.logger.verbose(`  completed`);
-            // Záznam do průběžného stavu
-            const newEntry = { type: "folder", name: folderPath, size: undefined };
-            this.state.data.push(newEntry); // Přidání do stavu
-            (0, deploy_1.createLocalState)(this.state, this.logger, {
-                "local-dir": this.localPath,
-                "state-name": this.stateName,
-            }); // Uložení stavu do souboru
+            // Přidání složky do flushedState
+            const newFolderEntry = {
+                type: "folder",
+                name: folderPath,
+                size: undefined, // Složky nemají velikost
+            };
+            this.flushedState.data.push(newFolderEntry);
         });
     }
     removeFile(filePath) {
@@ -3827,8 +3855,8 @@ class FTPSyncProvider {
             }
             this.logger.verbose(`  file removed`);
             this.logger.verbose(`  completed`);
-            // Pouze aktualizujeme lokální stav
-            this.state.data = this.state.data.filter(item => item.name !== filePath);
+            // Odstraníme záznam ze flushedState
+            this.flushedState.data = this.flushedState.data.filter(item => item.name !== filePath);
         });
     }
     removeFolder(folderPath) {
@@ -3858,6 +3886,24 @@ class FTPSyncProvider {
                 yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () { return this.client.uploadFrom(this.localPath + filePath, filePath); }));
             }
             this.logger.verbose(`  file ${typePast}`);
+            // Najdi hash v lokálním state
+            const existingFile = this.state.data.find(item => item.name === filePath && item.type === "file");
+            // Pokud soubor neexistuje, vyhoď chybu
+            if (!existingFile) {
+                throw new Error(`File "${filePath}" not found in local state`);
+            }
+            // Ověř, že jde o soubor (ne složku) a že má hash
+            if (existingFile.type !== "file") {
+                throw new Error(`Record for "${filePath}" is not a file`);
+            }
+            // Přidání souboru do flushedState
+            const newEntry = {
+                type: "file",
+                name: filePath,
+                size: fs_1.default.statSync(`${this.localPath}${filePath}`).size,
+                hash: existingFile.hash, // Použij hash ze stavu
+            };
+            this.flushedState.data.push(newEntry);
         });
     }
     syncLocalToServer(diffs) {
@@ -3872,36 +3918,14 @@ class FTPSyncProvider {
             this.logger.all(`Uploading: ${(0, pretty_bytes_1.default)(diffs.sizeUpload)} -- Deleting: ${(0, pretty_bytes_1.default)(diffs.sizeDelete)} -- Replacing: ${(0, pretty_bytes_1.default)(diffs.sizeReplace)}`);
             this.logger.all(`----------------------------------------------------------------`);
             let operationsCount = 0;
-            // **Průběžný zápis stavu**
-            const flushState = () => __awaiter(this, void 0, void 0, function* () {
-                try {
-                    // Uložení `state file` lokálně
-                    (0, deploy_1.createLocalState)(this.state, this.logger, {
-                        "local-dir": this.localPath,
-                        "state-name": this.stateName,
-                    });
-                    // Upload na server
-                    if (!this.dryRun) {
-                        yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () {
-                            return this.client.uploadFrom(`${this.localPath}${this.stateName}`, `${this.serverPath}${this.stateName}`);
-                        }));
-                        this.logger.verbose(`State file "${this.stateName}" uploaded to the server.`);
-                    }
-                }
-                catch (error) {
-                    this.logger.all(`⚠️ Failed to upload state file: ${error.message}`);
-                }
-            });
-            // **Zapouzdření operací s průběžným zápisem stavu**
             const processAndFlush = (operation) => __awaiter(this, void 0, void 0, function* () {
                 yield operation();
                 operationsCount++;
-                // Flush state file po každých X operacích
+                // Flush state after every X operations
                 if (operationsCount % 5 === 0) {
-                    yield flushState();
+                    yield this.flushState();
                 }
             });
-            // **Operace pro složky a soubory**
             // Create new folders
             for (const file of diffs.upload.filter(item => item.type === "folder")) {
                 yield processAndFlush(() => __awaiter(this, void 0, void 0, function* () {
@@ -3916,32 +3940,10 @@ class FTPSyncProvider {
                     yield this.uploadFile(file.name, "upload");
                 }));
             }
-            // Replace files
-            for (const file of diffs.replace.filter(item => item.type === "file").filter(item => item.name !== this.stateName)) {
-                yield processAndFlush(() => __awaiter(this, void 0, void 0, function* () {
-                    this.logger.standard(`🔁 Replacing file: ${file.name}`);
-                    yield this.uploadFile(file.name, "replace");
-                }));
-            }
-            // Delete old files
-            for (const file of diffs.delete.filter(item => item.type === "file")) {
-                yield processAndFlush(() => __awaiter(this, void 0, void 0, function* () {
-                    this.logger.standard(`📄 Deleting file: ${file.name}`);
-                    yield this.removeFile(file.name);
-                }));
-            }
-            // Delete old folders
-            for (const file of diffs.delete.filter(item => item.type === "folder")) {
-                yield processAndFlush(() => __awaiter(this, void 0, void 0, function* () {
-                    this.logger.standard(`📁 Deleting folder: ${file.name}`);
-                    yield this.removeFolder(file.name);
-                }));
-            }
             this.logger.all(`----------------------------------------------------------------`);
             this.logger.all(`A je to tam! 💩`);
             this.logger.all(`🎉 Sync complete. Saving current server state to "${this.serverPath + this.stateName}"`);
-            // **Finální zápis stavu**
-            yield flushState();
+            yield this.flushState(); // Final flush
         });
     }
 }
