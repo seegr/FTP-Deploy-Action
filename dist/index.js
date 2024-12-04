@@ -3919,11 +3919,13 @@ class FTPSyncProvider {
             this.logger.all(`Uploading: ${(0, pretty_bytes_1.default)(diffs.sizeUpload)} -- Deleting: ${(0, pretty_bytes_1.default)(diffs.sizeDelete)} -- Replacing: ${(0, pretty_bytes_1.default)(diffs.sizeReplace)}`);
             this.logger.all(`----------------------------------------------------------------`);
             let operationsCount = 0;
+            this.logger.all(`Processed operation count: ${operationsCount}`);
             const processAndFlush = (operation) => __awaiter(this, void 0, void 0, function* () {
                 yield operation();
                 operationsCount++;
                 // Flush state after every X operations
                 if (operationsCount % 5 === 0) {
+                    this.logger.all('Syncing server state');
                     yield this.flushState();
                 }
             });
@@ -3944,7 +3946,7 @@ class FTPSyncProvider {
             this.logger.all(`----------------------------------------------------------------`);
             this.logger.all(`A je to tam! 💩`);
             this.logger.all(`🎉 Sync complete. Saving current server state to "${this.serverPath + this.stateName}"`);
-            yield this.flushState(); // Final flush
+            // await this.flushState(); // Final flush
         });
     }
 }
