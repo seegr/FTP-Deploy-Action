@@ -3290,9 +3290,10 @@ function ensureStateFileExists(client, logger, timings, localPath, serverPath, s
                     data: [],
                 };
                 logger.all('baf!');
-                // createLocalState(initialState, logger, { "local-dir": localPath, "state-name": stateName } as IFtpDeployArgumentsWithDefaults);
+                createLocalState(initialState, logger, { "local-dir": localPath, "state-name": stateName });
+                logger.all(initialState);
                 // Upload empty state file to the server
-                const localStateFilePath = `${localPath}${stateName}`;
+                // const localStateFilePath = `${localPath}${stateName}`;
                 // await client.uploadFrom(localStateFilePath, serverStatePath);
                 logger.standard(`State file "${serverStatePath}" has been created on the server.`);
             }
