@@ -3698,17 +3698,17 @@ class FTPSyncProvider {
                     if (error instanceof Error) {
                         lastError = error;
                         if (error.message.includes("Client is closed")) {
-                            this.logger.verbose("Client closed, attempting to reconnect...");
+                            this.logger.all("Client closed, attempting to reconnect...");
                             yield this.reconnect();
                         }
-                        console.error(`Operation failed (attempt ${attempt + 1}/${retries}): ${error.message}`);
+                        this.logger.all(`Operation failed (attempt ${attempt + 1}/${retries}): ${error.message}`);
                     }
                     else {
                         lastError = new Error("Unknown error occurred");
-                        console.error(`Operation failed (attempt ${attempt + 1}/${retries}): Unknown error`);
+                        this.logger.all(`Operation failed (attempt ${attempt + 1}/${retries}): Unknown error`);
                     }
                     if (attempt < retries - 1) {
-                        console.log("Retrying...");
+                        this.logger.all("Retrying...");
                     }
                 }
             }
