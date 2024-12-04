@@ -3281,13 +3281,16 @@ function ensureStateFileExists(client, logger, timings, localPath, serverPath, s
             const stateFileExists = files.some(file => file.name === stateName);
             if (!stateFileExists) {
                 logger.standard(`State file "${serverStatePath}" does not exist. Creating it...`);
-                // Create an empty state file locally if it doesn't exist
-                const localStateFilePath = `${localPath}${stateName}`;
-                if (!fs_1.default.existsSync(localStateFilePath)) {
-                    fs_1.default.writeFileSync(localStateFilePath, JSON.stringify({}));
-                    logger.verbose(`Created local state file at "${localStateFilePath}".`);
-                }
+                // **ZDE přidáme inicializaci prázdného state.json**
+                const initialState = {
+                    description: types_1.syncFileDescription,
+                    version: types_1.currentSyncFileVersion,
+                    generatedTime: new Date().getTime(),
+                    data: [],
+                };
+                createLocalState(initialState, logger, { "local-dir": localPath, "state-name": stateName });
                 // Upload empty state file to the server
+                const localStateFilePath = `${localPath}${stateName}`;
                 yield client.uploadFrom(localStateFilePath, serverStatePath);
                 logger.standard(`State file "${serverStatePath}" has been created on the server.`);
             }
@@ -3613,6 +3616,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.FTPSyncProvider = exports.ensureDir = void 0;
 const pretty_bytes_1 = __importDefault(__nccwpck_require__(5168));
 const basicFtp = __importStar(__nccwpck_require__(7957));
+const fs_1 = __importDefault(__nccwpck_require__(7147));
 const types_1 = __nccwpck_require__(8408);
 const utilities_1 = __nccwpck_require__(358);
 function ensureDir(client, logger, timings, folder) {
@@ -3706,6 +3710,23 @@ class FTPSyncProvider {
             throw new Error(`Operation failed after ${retries} attempts: ${lastError === null || lastError === void 0 ? void 0 : lastError.message}`);
         });
     }
+    updateStateFile(localPath, stateName, diffs) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const stateFilePath = `${localPath}${stateName}`;
+            const stateData = {
+                description: "Updated state after partial sync",
+                version: types_1.currentSyncFileVersion,
+                generatedTime: new Date().getTime(),
+                data: [
+                    ...diffs.upload.map(file => (Object.assign(Object.assign({}, file), { action: "upload" }))),
+                    ...diffs.delete.map(file => (Object.assign(Object.assign({}, file), { action: "delete" }))),
+                    ...diffs.replace.map(file => (Object.assign(Object.assign({}, file), { action: "replace" }))),
+                ],
+            };
+            fs_1.default.writeFileSync(stateFilePath, JSON.stringify(stateData, null, 4), { encoding: "utf8" });
+            this.logger.verbose(`State file updated at "${stateFilePath}"`);
+        });
+    }
     /**
      * Converts a file path (ex: "folder/otherfolder/file.txt") to an array of folder and a file path
      * @param fullPath
@@ -3751,6 +3772,17 @@ class FTPSyncProvider {
             else {
                 yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () { return ensureDir(this.client, this.logger, this.timings, path.folders.join("/")); }));
             }
+            // Update state.json after successful operation
+            const diffs = {
+                upload: [{ type: "folder", name: folderPath, size: undefined }],
+                delete: [],
+                replace: [],
+                same: [],
+                sizeUpload: 0,
+                sizeDelete: 0,
+                sizeReplace: 0,
+            };
+            yield this.updateStateFile(this.localPath, this.stateName, diffs);
             // navigate back to the root folder
             yield this.upDir((_a = path.folders) === null || _a === void 0 ? void 0 : _a.length);
             this.logger.verbose(`  completed`);
@@ -3806,31 +3838,34 @@ class FTPSyncProvider {
             this.logger.all(`Making changes to ${totalCount} ${(0, utilities_1.pluralize)(totalCount, "file/folder", "files/folders")} to sync server state`);
             this.logger.all(`Uploading: ${(0, pretty_bytes_1.default)(diffs.sizeUpload)} -- Deleting: ${(0, pretty_bytes_1.default)(diffs.sizeDelete)} -- Replacing: ${(0, pretty_bytes_1.default)(diffs.sizeReplace)}`);
             this.logger.all(`----------------------------------------------------------------`);
-            // create new folders
-            for (const file of diffs.upload.filter(item => item.type === "folder")) {
-                yield this.createFolder(file.name);
+            try {
+                // create new folders
+                for (const file of diffs.upload.filter(item => item.type === "folder")) {
+                    yield this.createFolder(file.name);
+                }
+                // upload new files
+                for (const file of diffs.upload.filter(item => item.type === "file").filter(item => item.name !== this.stateName)) {
+                    yield this.uploadFile(file.name, "upload");
+                }
+                // replace new files
+                for (const file of diffs.replace.filter(item => item.type === "file").filter(item => item.name !== this.stateName)) {
+                    yield this.uploadFile(file.name, "replace");
+                }
+                // delete old files
+                for (const file of diffs.delete.filter(item => item.type === "file")) {
+                    yield this.removeFile(file.name);
+                }
+                // delete old folders
+                for (const file of diffs.delete.filter(item => item.type === "folder")) {
+                    yield this.removeFolder(file.name);
+                }
+                this.logger.all(`----------------------------------------------------------------`);
+                this.logger.all(`🎉 Sync complete.`);
             }
-            // upload new files
-            for (const file of diffs.upload.filter(item => item.type === "file").filter(item => item.name !== this.stateName)) {
-                yield this.uploadFile(file.name, "upload");
-            }
-            // replace new files
-            for (const file of diffs.replace.filter(item => item.type === "file").filter(item => item.name !== this.stateName)) {
-                yield this.uploadFile(file.name, "replace");
-            }
-            // delete old files
-            for (const file of diffs.delete.filter(item => item.type === "file")) {
-                yield this.removeFile(file.name);
-            }
-            // delete old folders
-            for (const file of diffs.delete.filter(item => item.type === "folder")) {
-                yield this.removeFolder(file.name);
-            }
-            this.logger.all(`----------------------------------------------------------------`);
-            this.logger.all(`A je to tam! 💩`);
-            this.logger.all(`🎉 Sync complete. Saving current server state to "${this.serverPath + this.stateName}"`);
-            if (this.dryRun === false) {
-                yield (0, utilities_1.retryRequest)(this.logger, () => __awaiter(this, void 0, void 0, function* () { return yield this.client.uploadFrom(this.localPath + this.stateName, this.stateName); }));
+            catch (error) {
+                this.logger.all(`⚠️ Sync interrupted due to an error: ${error.message}`);
+                yield this.updateStateFile(this.localPath, this.stateName, diffs); // Uložíme aktuální stav
+                throw error;
             }
         });
     }
