@@ -3827,17 +3827,25 @@ class FTPSyncProvider {
             }
             this.logger.verbose(`  file removed`);
             this.logger.verbose(`  completed`);
+            // Pouze aktualizujeme lokální stav
+            this.state.data = this.state.data.filter(item => item.name !== filePath);
         });
     }
     removeFolder(folderPath) {
         return __awaiter(this, void 0, void 0, function* () {
-            // eslint-disable-next-line @typescript-eslint/restrict-plus-operands
             const absoluteFolderPath = "/" + (this.serverPath.startsWith("./") ? this.serverPath.replace("./", "") : this.serverPath) + folderPath;
             this.logger.all(`removing folder "${absoluteFolderPath}"`);
             if (this.dryRun === false) {
                 yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () { return (0, utilities_1.retryRequest)(this.logger, () => __awaiter(this, void 0, void 0, function* () { return yield this.client.removeDir(absoluteFolderPath); })); }));
             }
+            this.logger.verbose(`  folder removed`);
             this.logger.verbose(`  completed`);
+            // Aktualizace lokálního stavu
+            this.state.data = this.state.data.filter(item => item.name !== folderPath);
+            (0, deploy_1.createLocalState)(this.state, this.logger, {
+                "local-dir": this.localPath,
+                "state-name": this.stateName,
+            }); // Lokální aktualizace
         });
     }
     uploadFile(filePath, type = "upload") {
@@ -3864,32 +3872,36 @@ class FTPSyncProvider {
             this.logger.all(`Uploading: ${(0, pretty_bytes_1.default)(diffs.sizeUpload)} -- Deleting: ${(0, pretty_bytes_1.default)(diffs.sizeDelete)} -- Replacing: ${(0, pretty_bytes_1.default)(diffs.sizeReplace)}`);
             this.logger.all(`----------------------------------------------------------------`);
             let operationsCount = 0;
+            // **Průběžný zápis stavu**
             const flushState = () => __awaiter(this, void 0, void 0, function* () {
-                // Ujisti se, že existují data k uložení
-                if (this.state.data.length === 0) {
-                    this.logger.verbose("No changes in state; skipping flush.");
-                    return; // Nic se nezměnilo -> žádný flush
-                }
-                if (!this.dryRun) {
-                    try {
-                        this.logger.verbose(`Current state before flush: ${JSON.stringify(this.state, null, 2)}`);
+                try {
+                    // Uložení `state file` lokálně
+                    (0, deploy_1.createLocalState)(this.state, this.logger, {
+                        "local-dir": this.localPath,
+                        "state-name": this.stateName,
+                    });
+                    // Upload na server
+                    if (!this.dryRun) {
                         yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () {
                             return this.client.uploadFrom(`${this.localPath}${this.stateName}`, `${this.serverPath}${this.stateName}`);
                         }));
                         this.logger.verbose(`State file "${this.stateName}" uploaded to the server.`);
                     }
-                    catch (error) {
-                        this.logger.all(`⚠️ Failed to upload state file: ${error.message}`);
-                    }
+                }
+                catch (error) {
+                    this.logger.all(`⚠️ Failed to upload state file: ${error.message}`);
                 }
             });
+            // **Zapouzdření operací s průběžným zápisem stavu**
             const processAndFlush = (operation) => __awaiter(this, void 0, void 0, function* () {
                 yield operation();
                 operationsCount++;
+                // Flush state file po každých X operacích
                 if (operationsCount % 5 === 0) {
                     yield flushState();
                 }
             });
+            // **Operace pro složky a soubory**
             // Create new folders
             for (const file of diffs.upload.filter(item => item.type === "folder")) {
                 yield processAndFlush(() => __awaiter(this, void 0, void 0, function* () {
@@ -3928,6 +3940,7 @@ class FTPSyncProvider {
             this.logger.all(`----------------------------------------------------------------`);
             this.logger.all(`A je to tam! 💩`);
             this.logger.all(`🎉 Sync complete. Saving current server state to "${this.serverPath + this.stateName}"`);
+            // **Finální zápis stavu**
             yield flushState();
         });
     }
