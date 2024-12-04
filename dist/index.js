@@ -3679,6 +3679,7 @@ class FTPSyncProvider {
                 // Uložení `flushedState` do dočasného lokálního souboru
                 fs_1.default.writeFileSync(tempStateFile, JSON.stringify(this.flushedState, null, 4), { encoding: "utf8" });
                 this.logger.verbose(`Temporary state saved to: ${tempStateFile}`);
+                this.logger.all(JSON.stringify(this.flushedState, null, 4), { encoding: "utf8" });
                 // Upload dočasného souboru na server
                 if (!this.dryRun) {
                     yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () {
@@ -3703,6 +3704,11 @@ class FTPSyncProvider {
     }
     updateFlushedState(newEntry) {
         return __awaiter(this, void 0, void 0, function* () {
+            // Ověření, že soubor není `.deploy-vendor-sync-state.json`
+            if (newEntry.name === this.stateName) {
+                this.logger.verbose(`Skipping state file "${this.stateName}" from being added to flushed state.`);
+                return; // Nepřidávej technický soubor
+            }
             this.flushedState.data.push(newEntry);
             this.flushedState.generatedTime = new Date().getTime();
         });
@@ -3929,7 +3935,7 @@ class FTPSyncProvider {
                 yield operation();
                 operationsCount++;
                 // Flush state after every X operations
-                if (operationsCount % 5 === 0) {
+                if (operationsCount % 20 === 0) {
                     this.logger.all('Syncing server state');
                     yield this.flushState();
                 }
