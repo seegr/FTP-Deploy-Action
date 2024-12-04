@@ -3679,16 +3679,15 @@ class FTPSyncProvider {
             try {
                 // Uložení `flushedState` do dočasného lokálního souboru
                 fs_1.default.writeFileSync(tempStateFile, JSON.stringify(this.flushedState, null, 4), { encoding: "utf8" });
-                this.logger.verbose(`Temporary state saved to: ${tempStateFile}`);
+                this.logger.all(`Temporary state saved to: ${tempStateFile}`);
                 this.logger.all(JSON.stringify(this.flushedState, null, 4), { encoding: "utf8" });
                 // Upload dočasného souboru na server
                 if (!this.dryRun) {
-                    // await this.safeOperation(async () =>
-                    //   this.client.uploadFrom(
-                    //     tempStateFile, // Dočasná lokální cesta
-                    //     `${this.serverPath}${this.stateName}` // Cílová cesta na serveru
-                    //   )
-                    // );
+                    yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () {
+                        return this.client.uploadFrom(tempStateFile, // Dočasná lokální cesta
+                        `${this.serverPath}${this.stateName}` // Cílová cesta na serveru
+                        );
+                    }));
                     this.logger.verbose(`Temporary state file "${this.stateName}" uploaded to the server.`);
                 }
             }
