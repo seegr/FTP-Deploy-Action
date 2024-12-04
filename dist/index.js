@@ -3703,36 +3703,24 @@ class FTPSyncProvider {
             }
         });
     }
-    safeOperation(operation, retries = 3) {
+    safeOperation(operation, retries = 5) {
         return __awaiter(this, void 0, void 0, function* () {
-            let lastError = null;
             for (let attempt = 0; attempt < retries; attempt++) {
                 try {
                     return yield operation();
                 }
                 catch (error) {
-                    if (error instanceof Error) {
-                        lastError = error;
-                        if (error.message.includes("Client is closed") ||
-                            error.message.includes("Server sent FIN packet")) {
-                            this.logger.verbose(`Connection issue detected: ${error.message}`);
-                            this.logger.verbose("Attempting to reconnect...");
-                            yield this.reconnect();
-                        }
-                        else {
-                            console.error(`Operation failed (attempt ${attempt + 1}/${retries}): ${error.message}`);
-                        }
+                    if (attempt < retries - 1) {
+                        this.logger.all(`Retrying operation (attempt ${attempt + 1}/${retries})...`);
+                        yield this.reconnect();
+                        yield new Promise(resolve => setTimeout(resolve, 2000)); // Čekání mezi pokusy
                     }
                     else {
-                        lastError = new Error("Unknown error occurred");
-                        console.error(`Operation failed (attempt ${attempt + 1}/${retries}): Unknown error`);
-                    }
-                    if (attempt < retries - 1) {
-                        this.logger.all("Retrying...");
+                        this.logger.all(`Operation failed after ${retries} attempts: ${error.message}`);
+                        throw error;
                     }
                 }
             }
-            throw new Error(`Operation failed after ${retries} attempts: ${lastError === null || lastError === void 0 ? void 0 : lastError.message}`);
         });
     }
     updateStateFile(localPath, stateName, diffs) {
@@ -3861,56 +3849,65 @@ class FTPSyncProvider {
             this.logger.all(`----------------------------------------------------------------`);
             let operationsCount = 0;
             const flushState = () => __awaiter(this, void 0, void 0, function* () {
+                this.logger.verbose(`Flushing state after ${operationsCount} operations.`);
                 if (!this.dryRun) {
                     try {
                         yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () {
-                            return this.client.uploadFrom(`${this.localPath}${this.stateName}`, // Lokální cesta
-                            `${this.serverPath}${this.stateName}` // Cílová cesta
-                            );
+                            return this.client.uploadFrom(`${this.localPath}${this.stateName}`, `${this.serverPath}${this.stateName}`);
                         }));
-                        this.logger.verbose(`State file "${this.stateName}" uploaded to the server after ${operationsCount} operations.`);
+                        this.logger.verbose(`State successfully flushed to server.`);
                     }
                     catch (error) {
-                        this.logger.all(`⚠️ Failed to upload state file: ${error.message}`);
+                        this.logger.all(`⚠️ Failed to flush state: ${error.message}`);
                     }
                 }
             });
-            const processAndFlush = (action) => __awaiter(this, void 0, void 0, function* () {
-                yield action();
+            const processAndFlush = (operation) => __awaiter(this, void 0, void 0, function* () {
+                yield operation();
                 operationsCount++;
                 if (operationsCount % 5 === 0) {
-                    yield flushState(); // Volání flushState je neblokující
+                    yield flushState();
                 }
             });
             // Create new folders
             for (const file of diffs.upload.filter(item => item.type === "folder")) {
-                this.logger.standard(`📁 Creating folder: ${file.name}`);
-                yield processAndFlush(() => __awaiter(this, void 0, void 0, function* () { return this.createFolder(file.name); }));
+                yield processAndFlush(() => __awaiter(this, void 0, void 0, function* () {
+                    this.logger.standard(`📁 Creating folder: ${file.name}`);
+                    yield this.createFolder(file.name);
+                }));
             }
             // Upload new files
             for (const file of diffs.upload.filter(item => item.type === "file").filter(item => item.name !== this.stateName)) {
-                this.logger.standard(`📄 Uploading new file: ${file.name}`);
-                yield processAndFlush(() => __awaiter(this, void 0, void 0, function* () { return this.uploadFile(file.name, "upload"); }));
+                yield processAndFlush(() => __awaiter(this, void 0, void 0, function* () {
+                    this.logger.standard(`📄 Uploading new file: ${file.name}`);
+                    yield this.uploadFile(file.name, "upload");
+                }));
             }
             // Replace files
             for (const file of diffs.replace.filter(item => item.type === "file").filter(item => item.name !== this.stateName)) {
-                this.logger.standard(`🔁 Replacing file: ${file.name}`);
-                yield processAndFlush(() => __awaiter(this, void 0, void 0, function* () { return this.uploadFile(file.name, "replace"); }));
+                yield processAndFlush(() => __awaiter(this, void 0, void 0, function* () {
+                    this.logger.standard(`🔁 Replacing file: ${file.name}`);
+                    yield this.uploadFile(file.name, "replace");
+                }));
             }
             // Delete old files
             for (const file of diffs.delete.filter(item => item.type === "file")) {
-                this.logger.standard(`📄 Deleting file: ${file.name}`);
-                yield processAndFlush(() => __awaiter(this, void 0, void 0, function* () { return this.removeFile(file.name); }));
+                yield processAndFlush(() => __awaiter(this, void 0, void 0, function* () {
+                    this.logger.standard(`📄 Deleting file: ${file.name}`);
+                    yield this.removeFile(file.name);
+                }));
             }
             // Delete old folders
             for (const file of diffs.delete.filter(item => item.type === "folder")) {
-                this.logger.standard(`📁 Deleting folder: ${file.name}`);
-                yield processAndFlush(() => __awaiter(this, void 0, void 0, function* () { return this.removeFolder(file.name); }));
+                yield processAndFlush(() => __awaiter(this, void 0, void 0, function* () {
+                    this.logger.standard(`📁 Deleting folder: ${file.name}`);
+                    yield this.removeFolder(file.name);
+                }));
             }
             this.logger.all(`----------------------------------------------------------------`);
             this.logger.all(`A je to tam! 💩`);
             this.logger.all(`🎉 Sync complete. Saving current server state to "${this.serverPath + this.stateName}"`);
-            yield flushState(); // Závěrečný zápis stavu na FTP server
+            yield flushState();
         });
     }
 }
