@@ -3703,24 +3703,36 @@ class FTPSyncProvider {
             }
         });
     }
-    safeOperation(operation, retries = 5) {
+    safeOperation(operation, retries = 3) {
         return __awaiter(this, void 0, void 0, function* () {
+            let lastError = null;
             for (let attempt = 0; attempt < retries; attempt++) {
                 try {
                     return yield operation();
                 }
                 catch (error) {
-                    if (attempt < retries - 1) {
-                        this.logger.all(`Retrying operation (attempt ${attempt + 1}/${retries})...`);
-                        yield this.reconnect();
-                        yield new Promise(resolve => setTimeout(resolve, 2000)); // Čekání mezi pokusy
+                    if (error instanceof Error) {
+                        lastError = error;
+                        if (error.message.includes("Client is closed") || error.message.includes("ECONNRESET")) {
+                            this.logger.verbose(`Connection issue detected: ${error.message}`);
+                            this.logger.verbose("Attempting to reconnect...");
+                            yield this.reconnect();
+                        }
+                        else {
+                            // Ukonči retry pro chyby, které nejsou připojení
+                            throw error;
+                        }
                     }
                     else {
-                        this.logger.all(`Operation failed after ${retries} attempts: ${error.message}`);
-                        throw error;
+                        lastError = new Error("Unknown error occurred");
+                        throw lastError;
+                    }
+                    if (attempt < retries - 1) {
+                        this.logger.all(`Retrying operation (attempt ${attempt + 1}/${retries})...`);
                     }
                 }
             }
+            throw new Error(`Operation failed after ${retries} attempts: ${lastError === null || lastError === void 0 ? void 0 : lastError.message}`);
         });
     }
     updateStateFile(localPath, stateName, diffs) {
@@ -3843,22 +3855,31 @@ class FTPSyncProvider {
     syncLocalToServer(diffs) {
         return __awaiter(this, void 0, void 0, function* () {
             const totalCount = diffs.delete.length + diffs.upload.length + diffs.replace.length;
+            if (totalCount === 0) {
+                this.logger.all("No changes detected; sync is already up-to-date.");
+                return;
+            }
             this.logger.all(`----------------------------------------------------------------`);
             this.logger.all(`Making changes to ${totalCount} ${(0, utilities_1.pluralize)(totalCount, "file/folder", "files/folders")} to sync server state`);
             this.logger.all(`Uploading: ${(0, pretty_bytes_1.default)(diffs.sizeUpload)} -- Deleting: ${(0, pretty_bytes_1.default)(diffs.sizeDelete)} -- Replacing: ${(0, pretty_bytes_1.default)(diffs.sizeReplace)}`);
             this.logger.all(`----------------------------------------------------------------`);
             let operationsCount = 0;
             const flushState = () => __awaiter(this, void 0, void 0, function* () {
-                this.logger.verbose(`Flushing state after ${operationsCount} operations.`);
+                // Ujisti se, že existují data k uložení
+                if (this.state.data.length === 0) {
+                    this.logger.verbose("No changes in state; skipping flush.");
+                    return; // Nic se nezměnilo -> žádný flush
+                }
                 if (!this.dryRun) {
                     try {
+                        this.logger.verbose(`Current state before flush: ${JSON.stringify(this.state, null, 2)}`);
                         yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () {
                             return this.client.uploadFrom(`${this.localPath}${this.stateName}`, `${this.serverPath}${this.stateName}`);
                         }));
-                        this.logger.verbose(`State successfully flushed to server.`);
+                        this.logger.verbose(`State file "${this.stateName}" uploaded to the server.`);
                     }
                     catch (error) {
-                        this.logger.all(`⚠️ Failed to flush state: ${error.message}`);
+                        this.logger.all(`⚠️ Failed to upload state file: ${error.message}`);
                     }
                 }
             });
