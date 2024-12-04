@@ -3293,8 +3293,8 @@ function ensureStateFileExists(client, logger, timings, localPath, serverPath, s
                 createLocalState(initialState, logger, { "local-dir": localPath, "state-name": stateName });
                 logger.all(initialState);
                 // Upload empty state file to the server
-                // const localStateFilePath = `${localPath}${stateName}`;
-                // await client.uploadFrom(localStateFilePath, serverStatePath);
+                const localStateFilePath = `${localPath}${stateName}`;
+                yield client.uploadFrom(localStateFilePath, serverStatePath);
                 logger.standard(`State file "${serverStatePath}" has been created on the server.`);
             }
             else {
