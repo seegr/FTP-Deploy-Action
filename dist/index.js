@@ -3336,7 +3336,7 @@ function deploy(args, logger, timings) {
         try {
             yield global.reconnect();
             // Ensure state.json exists
-            yield ensureStateFileExists(client, logger, timings, localPath, serverPath, stateName);
+            // await ensureStateFileExists(client, logger, timings, localPath, serverPath, stateName);
             // Get server files
             const serverFiles = yield getServerFiles(client, logger, timings, args);
             // Calculate diffs
