@@ -3869,32 +3869,26 @@ class FTPSyncProvider {
             this.logger.all(`Uploading: ${(0, pretty_bytes_1.default)(diffs.sizeUpload)} -- Deleting: ${(0, pretty_bytes_1.default)(diffs.sizeDelete)} -- Replacing: ${(0, pretty_bytes_1.default)(diffs.sizeReplace)}`);
             this.logger.all(`----------------------------------------------------------------`);
             let operationsCount = 0;
-            let isFlushing = false; // Stav, zda již probíhá zápis stavu
             const flushState = () => __awaiter(this, void 0, void 0, function* () {
-                if (this.dryRun || isFlushing)
-                    return; // Nepokračuj, pokud dry-run nebo již probíhá flush
-                isFlushing = true;
-                try {
-                    this.logger.verbose(`Flushing state to server after ${operationsCount} operations...`);
-                    yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () {
-                        return this.client.uploadFrom(`${this.localPath}${this.stateName}`, // Lokální cesta
-                        `${this.serverPath}${this.stateName}` // Cílová cesta
-                        );
-                    }));
-                    this.logger.verbose(`State file "${this.stateName}" uploaded to the server.`);
-                }
-                catch (error) {
-                    this.logger.all(`⚠️ Failed to upload state file: ${error.message}`);
-                }
-                finally {
-                    isFlushing = false;
+                if (!this.dryRun) {
+                    try {
+                        yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () {
+                            return this.client.uploadFrom(`${this.localPath}${this.stateName}`, // Lokální cesta
+                            `${this.serverPath}${this.stateName}` // Cílová cesta
+                            );
+                        }));
+                        this.logger.verbose(`State file "${this.stateName}" uploaded to the server after ${operationsCount} operations.`);
+                    }
+                    catch (error) {
+                        this.logger.all(`⚠️ Failed to upload state file: ${error.message}`);
+                    }
                 }
             });
             const processAndFlush = (action) => __awaiter(this, void 0, void 0, function* () {
                 yield action();
                 operationsCount++;
                 if (operationsCount % 5 === 0) {
-                    flushState(); // Volání flushState je neblokující
+                    yield flushState(); // Volání flushState je neblokující
                 }
             });
             // Create new folders
