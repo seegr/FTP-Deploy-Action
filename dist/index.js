@@ -3620,7 +3620,6 @@ const basicFtp = __importStar(__nccwpck_require__(7957));
 const fs_1 = __importDefault(__nccwpck_require__(7147));
 const types_1 = __nccwpck_require__(8408);
 const utilities_1 = __nccwpck_require__(358);
-const deploy_1 = __nccwpck_require__(8783);
 function ensureDir(client, logger, timings, folder) {
     return __awaiter(this, void 0, void 0, function* () {
         timings.start("changingDir");
@@ -3675,24 +3674,30 @@ class FTPSyncProvider {
     }
     flushState() {
         return __awaiter(this, void 0, void 0, function* () {
+            const tempStateFile = `${this.localPath}temp-deploy-state.json`; // Dočasný lokální soubor
             try {
-                // Uložení pouze vytvořených/nahraných složek a souborů do lokálního stavu
-                (0, deploy_1.createLocalState)(this.flushedState, this.logger, {
-                    "local-dir": this.localPath,
-                    "state-name": this.stateName,
-                });
-                // Upload na server pouze vytvořeného stavu
+                // Uložení `flushedState` do dočasného lokálního souboru
+                fs_1.default.writeFileSync(tempStateFile, JSON.stringify(this.flushedState, null, 4), { encoding: "utf8" });
+                this.logger.verbose(`Temporary state saved to: ${tempStateFile}`);
+                // Upload dočasného souboru na server
                 if (!this.dryRun) {
                     yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () {
-                        return this.client.uploadFrom(`${this.localPath}${this.stateName}`, // Lokální cesta
-                        `${this.serverPath}${this.stateName}` // Cílová cesta
+                        return this.client.uploadFrom(tempStateFile, // Dočasná lokální cesta
+                        `${this.serverPath}${this.stateName}` // Cílová cesta na serveru
                         );
                     }));
-                    this.logger.verbose(`State file "${this.stateName}" uploaded to the server.`);
+                    this.logger.verbose(`Temporary state file "${this.stateName}" uploaded to the server.`);
                 }
             }
             catch (error) {
-                this.logger.all(`⚠️ Failed to upload state file: ${error.message}`);
+                this.logger.all(`⚠️ Failed to upload temporary state file: ${error.message}`);
+            }
+            finally {
+                // Smazání dočasného souboru
+                if (fs_1.default.existsSync(tempStateFile)) {
+                    fs_1.default.unlinkSync(tempStateFile);
+                    this.logger.verbose(`Temporary state file "${tempStateFile}" removed.`);
+                }
             }
         });
     }
@@ -3946,7 +3951,7 @@ class FTPSyncProvider {
             this.logger.all(`----------------------------------------------------------------`);
             this.logger.all(`A je to tam! 💩`);
             this.logger.all(`🎉 Sync complete. Saving current server state to "${this.serverPath + this.stateName}"`);
-            // await this.flushState(); // Final flush
+            yield this.flushState(); // Final flush
         });
     }
 }
