@@ -3271,21 +3271,6 @@ function getServerFiles(client, logger, timings, args) {
     });
 }
 exports.getServerFiles = getServerFiles;
-class Mutex {
-    constructor() {
-        this.promise = Promise.resolve();
-    }
-    lock() {
-        return __awaiter(this, void 0, void 0, function* () {
-            let unlockNext;
-            const willUnlock = new Promise(resolve => unlockNext = resolve);
-            const previous = this.promise;
-            this.promise = willUnlock;
-            yield previous;
-            unlockNext(); // Spustí další čekající úlohu
-        });
-    }
-}
 function ensureStateFileExists(client, logger, timings, localPath, serverPath, stateName) {
     return __awaiter(this, void 0, void 0, function* () {
         const serverStatePath = `${serverPath}${stateName}`;
@@ -3384,7 +3369,10 @@ function deploy(args, logger, timings) {
             // Upload files
             timings.start("upload");
             try {
-                const syncProvider = new syncProvider_1.FTPSyncProvider(client, logger, timings, localPath, serverPath, stateName, args["dry-run"]);
+                const syncProvider = new syncProvider_1.FTPSyncProvider(client, logger, timings, localPath, serverPath, stateName, args["dry-run"], args.server, // Přidáme server
+                args.username, // Přidáme username
+                args.password // Přidáme password
+                );
                 yield syncProvider.syncLocalToServer(diffs);
             }
             finally {
@@ -3638,7 +3626,7 @@ function ensureDir(client, logger, timings, folder) {
 }
 exports.ensureDir = ensureDir;
 class FTPSyncProvider {
-    constructor(client, logger, timings, localPath, serverPath, stateName, dryRun) {
+    constructor(client, logger, timings, localPath, serverPath, stateName, dryRun, server, username, password) {
         this.lastNoopTime = Date.now();
         this.client = client;
         this.logger = logger;
@@ -3647,6 +3635,9 @@ class FTPSyncProvider {
         this.serverPath = serverPath;
         this.stateName = stateName;
         this.dryRun = dryRun;
+        this.server = server;
+        this.username = username;
+        this.password = password;
     }
     reconnect() {
         return __awaiter(this, void 0, void 0, function* () {
@@ -3659,10 +3650,10 @@ class FTPSyncProvider {
             }
             this.client = new basicFtp.Client(this.client.ftp.timeout); // Vytvoř nový klient
             yield this.client.access({
-                host: this.serverPath,
-                user: this.localPath,
-                password: this.stateName,
-                secure: true, // nebo false podle potřeby
+                host: this.server,
+                user: this.username,
+                password: this.password,
+                secure: true, // nebo podle potřeby
             });
             this.logger.verbose("Reconnected successfully.");
         });
@@ -3698,17 +3689,17 @@ class FTPSyncProvider {
                     if (error instanceof Error) {
                         lastError = error;
                         if (error.message.includes("Client is closed")) {
-                            this.logger.all("Client closed, attempting to reconnect...");
+                            this.logger.verbose("Client closed, attempting to reconnect...");
                             yield this.reconnect();
                         }
-                        this.logger.all(`Operation failed (attempt ${attempt + 1}/${retries}): ${error.message}`);
+                        console.error(`Operation failed (attempt ${attempt + 1}/${retries}): ${error.message}`);
                     }
                     else {
                         lastError = new Error("Unknown error occurred");
-                        this.logger.all(`Operation failed (attempt ${attempt + 1}/${retries}): Unknown error`);
+                        console.error(`Operation failed (attempt ${attempt + 1}/${retries}): Unknown error`);
                     }
                     if (attempt < retries - 1) {
-                        this.logger.all("Retrying...");
+                        console.log("Retrying...");
                     }
                 }
             }
