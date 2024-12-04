@@ -3713,8 +3713,7 @@ class FTPSyncProvider {
                 catch (error) {
                     if (error instanceof Error) {
                         lastError = error;
-                        if (error.message.includes("Client is closed") ||
-                            error.message.includes("Server sent FIN packet")) {
+                        if (error.message) {
                             this.logger.verbose(`Connection issue detected: ${error.message}`);
                             this.logger.verbose("Attempting to reconnect...");
                             yield this.reconnect();
@@ -3722,13 +3721,23 @@ class FTPSyncProvider {
                         else {
                             console.error(`Operation failed (attempt ${attempt + 1}/${retries}): ${error.message}`);
                         }
+                        // if (
+                        //   error.message.includes("Client is closed") ||
+                        //   error.message.includes("Server sent FIN packet")
+                        // ) {
+                        //     this.logger.verbose(`Connection issue detected: ${error.message}`);
+                        //     this.logger.verbose("Attempting to reconnect...");
+                        //     await this.reconnect();
+                        // } else {
+                        //     console.error(`Operation failed (attempt ${attempt + 1}/${retries}): ${error.message}`);
+                        // }
                     }
                     else {
                         lastError = new Error("Unknown error occurred");
                         console.error(`Operation failed (attempt ${attempt + 1}/${retries}): Unknown error`);
                     }
                     if (attempt < retries - 1) {
-                        console.log("Retrying...");
+                        this.logger.all("Retrying...");
                     }
                 }
             }
