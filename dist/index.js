@@ -3956,6 +3956,7 @@ class FTPSyncProvider {
             }
             // Upload new files
             for (const file of diffs.upload.filter(item => item.type === "file")) {
+                this.logger.all(`checking file: ${file.name} vs ${this.stateName}`);
                 if (file.name === this.stateName) {
                     this.logger.all('skipping local state file');
                     return;
