@@ -3682,12 +3682,13 @@ class FTPSyncProvider {
                 this.logger.all(JSON.stringify(this.flushedState, null, 4), { encoding: "utf8" });
                 // Upload dočasného souboru na server
                 if (!this.dryRun) {
-                    yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () {
-                        return this.client.uploadFrom(tempStateFile, // Dočasná lokální cesta
-                        `${this.serverPath}${this.stateName}` // Cílová cesta na serveru
-                        );
-                    }));
-                    this.logger.verbose(`Temporary state file "${this.stateName}" uploaded to the server.`);
+                    // await this.safeOperation(async () =>
+                    //   this.client.uploadFrom(
+                    //     tempStateFile, // Dočasná lokální cesta
+                    //     `${this.serverPath}${this.stateName}` // Cílová cesta na serveru
+                    //   )
+                    // );
+                    // this.logger.verbose(`Temporary state file "${this.stateName}" uploaded to the server.`);
                 }
             }
             catch (error) {
@@ -3954,7 +3955,11 @@ class FTPSyncProvider {
                 }));
             }
             // Upload new files
-            for (const file of diffs.upload.filter(item => item.type === "file").filter(item => item.name !== this.stateName)) {
+            for (const file of diffs.upload.filter(item => item.type === "file")) {
+                if (file.name === this.stateName) {
+                    this.logger.all('skipping local state file');
+                    return;
+                }
                 yield processAndFlush(() => __awaiter(this, void 0, void 0, function* () {
                     this.logger.standard(`📄 Uploading new file: ${file.name}`);
                     yield this.uploadFile(file.name, "upload");
