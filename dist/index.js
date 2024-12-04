@@ -3168,7 +3168,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.deploy = exports.getServerFiles = void 0;
+exports.deploy = exports.getServerFiles = exports.createLocalState = void 0;
 const ftp = __importStar(__nccwpck_require__(7957));
 const fs_1 = __importDefault(__nccwpck_require__(7147));
 const types_1 = __nccwpck_require__(8408);
@@ -3195,6 +3195,7 @@ function createLocalState(localFiles, logger, args) {
     fs_1.default.writeFileSync(`${args["local-dir"]}${args["state-name"]}`, JSON.stringify(localFiles, undefined, 4), { encoding: "utf8" });
     logger.verbose("Local state created");
 }
+exports.createLocalState = createLocalState;
 function connect(client, args, logger) {
     return __awaiter(this, void 0, void 0, function* () {
         let secure = false;
@@ -3619,6 +3620,7 @@ const basicFtp = __importStar(__nccwpck_require__(7957));
 const fs_1 = __importDefault(__nccwpck_require__(7147));
 const types_1 = __nccwpck_require__(8408);
 const utilities_1 = __nccwpck_require__(358);
+const deploy_1 = __nccwpck_require__(8783);
 function ensureDir(client, logger, timings, folder) {
     return __awaiter(this, void 0, void 0, function* () {
         timings.start("changingDir");
@@ -3642,6 +3644,22 @@ class FTPSyncProvider {
         this.server = server;
         this.username = username;
         this.password = password;
+        // Inicializace state ze souboru
+        const stateFilePath = `${this.localPath}${this.stateName}`;
+        if (fs_1.default.existsSync(stateFilePath)) {
+            const stateFileContent = fs_1.default.readFileSync(stateFilePath, "utf-8");
+            this.state = JSON.parse(stateFileContent);
+            this.logger.verbose("State loaded from file.");
+        }
+        else {
+            this.state = {
+                description: "Sync state file",
+                version: "1.0.0",
+                generatedTime: new Date().getTime(),
+                data: [],
+            };
+            this.logger.verbose("Initialized new empty state.");
+        }
     }
     reconnect() {
         return __awaiter(this, void 0, void 0, function* () {
@@ -3695,11 +3713,15 @@ class FTPSyncProvider {
                 catch (error) {
                     if (error instanceof Error) {
                         lastError = error;
-                        if (error.message.includes("Client is closed")) {
-                            this.logger.verbose("Client closed, attempting to reconnect...");
+                        if (error.message.includes("Client is closed") ||
+                            error.message.includes("Server sent FIN packet")) {
+                            this.logger.verbose(`Connection issue detected: ${error.message}`);
+                            this.logger.verbose("Attempting to reconnect...");
                             yield this.reconnect();
                         }
-                        console.error(`Operation failed (attempt ${attempt + 1}/${retries}): ${error.message}`);
+                        else {
+                            console.error(`Operation failed (attempt ${attempt + 1}/${retries}): ${error.message}`);
+                        }
                     }
                     else {
                         lastError = new Error("Unknown error occurred");
@@ -3775,20 +3797,16 @@ class FTPSyncProvider {
             else {
                 yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () { return ensureDir(this.client, this.logger, this.timings, path.folders.join("/")); }));
             }
-            // Update state.json after successful operation
-            const diffs = {
-                upload: [{ type: "folder", name: folderPath, size: undefined }],
-                delete: [],
-                replace: [],
-                same: [],
-                sizeUpload: 0,
-                sizeDelete: 0,
-                sizeReplace: 0,
-            };
-            yield this.updateStateFile(this.localPath, this.stateName, diffs);
             // navigate back to the root folder
             yield this.upDir((_a = path.folders) === null || _a === void 0 ? void 0 : _a.length);
             this.logger.verbose(`  completed`);
+            // Záznam do průběžného stavu
+            const newEntry = { type: "folder", name: folderPath, size: undefined };
+            this.state.data.push(newEntry); // Přidání do stavu
+            (0, deploy_1.createLocalState)(this.state, this.logger, {
+                "local-dir": this.localPath,
+                "state-name": this.stateName,
+            }); // Uložení stavu do souboru
         });
     }
     removeFile(filePath) {
