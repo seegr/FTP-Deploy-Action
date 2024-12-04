@@ -3920,6 +3920,12 @@ class FTPSyncProvider {
     }
     syncLocalToServer(diffs) {
         return __awaiter(this, void 0, void 0, function* () {
+            this.flushedState = {
+                description: "Flushed state for successfully synced items",
+                version: types_1.currentSyncFileVersion,
+                generatedTime: new Date().getTime(),
+                data: [],
+            };
             const totalCount = diffs.delete.length + diffs.upload.length + diffs.replace.length;
             if (totalCount === 0) {
                 this.logger.all("No changes detected; sync is already up-to-date.");
@@ -3935,7 +3941,7 @@ class FTPSyncProvider {
                 yield operation();
                 operationsCount++;
                 // Flush state after every X operations
-                if (operationsCount % 20 === 0) {
+                if (operationsCount % 30 === 0) {
                     this.logger.all('Syncing server state');
                     yield this.flushState();
                 }
