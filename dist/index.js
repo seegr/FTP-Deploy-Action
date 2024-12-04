@@ -3319,7 +3319,6 @@ function deploy(args, logger, timings) {
         timings.start("hash");
         const localFiles = yield (0, localFiles_1.getLocalFiles)(args);
         timings.stop("hash");
-        createLocalState(localFiles, logger, args);
         const client = new ftp.Client(args.timeout);
         const stateName = args["state-name"];
         const localPath = args["local-dir"];
@@ -3682,13 +3681,12 @@ class FTPSyncProvider {
                 this.logger.all(JSON.stringify(this.flushedState, null, 4), { encoding: "utf8" });
                 // Upload dočasného souboru na server
                 if (!this.dryRun) {
-                    // await this.safeOperation(async () =>
-                    //   this.client.uploadFrom(
-                    //     tempStateFile, // Dočasná lokální cesta
-                    //     `${this.serverPath}${this.stateName}` // Cílová cesta na serveru
-                    //   )
-                    // );
-                    // this.logger.verbose(`Temporary state file "${this.stateName}" uploaded to the server.`);
+                    yield this.safeOperation(() => __awaiter(this, void 0, void 0, function* () {
+                        return this.client.uploadFrom(tempStateFile, // Dočasná lokální cesta
+                        `${this.serverPath}${this.stateName}` // Cílová cesta na serveru
+                        );
+                    }));
+                    this.logger.verbose(`Temporary state file "${this.stateName}" uploaded to the server.`);
                 }
             }
             catch (error) {
@@ -3947,6 +3945,20 @@ class FTPSyncProvider {
                     yield this.flushState();
                 }
             });
+            // Delete old files
+            for (const file of diffs.delete.filter(item => item.type === "file")) {
+                yield processAndFlush(() => __awaiter(this, void 0, void 0, function* () {
+                    this.logger.standard(`📄 Deleting file: ${file.name}`);
+                    yield this.removeFile(file.name);
+                }));
+            }
+            // Delete old folders
+            for (const file of diffs.delete.filter(item => item.type === "folder")) {
+                yield processAndFlush(() => __awaiter(this, void 0, void 0, function* () {
+                    this.logger.standard(`📁 Deleting folder: ${file.name}`);
+                    yield this.removeFolder(file.name);
+                }));
+            }
             // Create new folders
             for (const file of diffs.upload.filter(item => item.type === "folder")) {
                 yield processAndFlush(() => __awaiter(this, void 0, void 0, function* () {
@@ -3956,7 +3968,6 @@ class FTPSyncProvider {
             }
             // Upload new files
             for (const file of diffs.upload.filter(item => item.type === "file")) {
-                this.logger.all(`checking file: ${file.name} vs ${this.stateName}`);
                 if (file.name === this.stateName) {
                     this.logger.all('skipping local state file');
                     return;
